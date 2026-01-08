@@ -32,7 +32,375 @@
 
 ## 3. TCP/UDP
 
-## 4. IP
+## 4. IP (Internet Layer / Network Layer)
+
+The IP layer is responsible for logical addressing, routing, and delivering packets end-to-end across interconnected networks. It provides a best-effort, connectionless service using IP packets (datagrams) and works closely with ICMP for errors and diagnostics.
+
+### Overview & Role
+
+**Primary Responsibilities:**
+- **Logical Addressing:** IP addresses identify source and destination hosts across different networks
+- **Routing & Forwarding:** Selecting next hops and moving packets across multiple routers
+- **Best-Effort Delivery:** No guarantees of reliability, ordering, or congestion control (handled by upper layers like TCP if needed)
+
+**Key Protocols at this Layer:**
+
+| Protocol | Purpose |
+|----------|---------|
+| IPv4 / IPv6 | Internet Protocol for addressing and routing |
+| ICMP | Error reporting and diagnostics |
+| ARP/ND | Mapping IP to MAC addresses (link-layer helper) |
+
+---
+
+### IP Addressing
+
+#### IPv4 Address Format
+
+An IPv4 address is a 32-bit number, typically written as dotted decimal notation:
+
+**Example:** `192.168.10.5`
+
+**Conceptual Structure:**
+- **Network part:** Identifies the network/subnet
+- **Host part:** Identifies a host within that network
+
+**Example Breakdown:**
+```
+Address: 192.168.10.5
+Mask: 255.255.255.0 (/24)
+Network: 192.168.10.0
+Host range: 192.168.10.1–192.168.10.254
+Broadcast: 192.168.10.255
+```
+
+#### CIDR (Classless Inter-Domain Routing) Notation
+
+CIDR uses `/` to indicate how many leading bits represent the network:
+
+| CIDR | Network Bits | Host Bits | Network Addresses |
+|------|-------------|-----------|-------------------|
+| /8 | 8 | 24 | 256² × 256 |
+| /16 | 16 | 16 | 256 × 256 |
+| /24 | 24 | 8 | 256 |
+| /32 | 32 | 0 | 1 (single host) |
+
+**Host Count Formula:**
+
+- **Total addresses:** $2^{(32-\text{prefix})}$
+- **Usable hosts (unicast subnets):** $2^{(32-\text{prefix})} - 2$ (network and broadcast reserved)
+
+**Example:** `/26` subnet
+- Host bits = 6 → $2^6 = 64$ total addresses
+- Usable hosts = 62
+
+#### Classful Addressing (Historical Reference)
+
+Though legacy, classful addressing is still useful for understanding:
+
+| Class | Range | Default Prefix | Size |
+|-------|-------|-----------------|------|
+| A | 0.0.0.0–127.255.255.255 | /8 | Large networks |
+| B | 128.0.0.0–191.255.255.255 | /16 | Medium networks |
+| C | 192.0.0.0–223.255.255.255 | /24 | Small networks |
+| D | 224.0.0.0–239.255.255.255 | N/A | Multicast |
+| E | 240.0.0.0–255.255.255.255 | N/A | Reserved |
+
+**Note:** Modern networks use CIDR instead of strict classful addressing.
+
+#### Special IPv4 Address Types
+
+| Address Range | Type | Purpose |
+|----------------|------|---------|
+| 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 | Private (RFC 1918) | Not routed on public Internet |
+| 127.0.0.0/8 | Loopback | Local host testing (127.0.0.1) |
+| 169.254.0.0/16 | Link-Local (APIPA) | Auto-assigned when DHCP unavailable |
+| 255.255.255.255 | Limited Broadcast | Local network broadcast |
+| x.x.x.255 | Subnet Broadcast | Broadcast within subnet |
+
+---
+
+### Subnetting
+
+Subnetting splits a larger network into smaller logical subnets by borrowing host bits for the network portion.
+
+#### Subnetting Procedure
+
+**Example 1: Create 4 equal subnets from 192.168.1.0/24**
+
+1. **Required network bits:** $2^2 = 4$ subnets → need 2 bits
+2. **Borrow from host bits:** /24 → /26
+3. **Block size:** $256 - 192 = 64$ addresses per subnet
+
+**Resulting subnets:**
+
+| Subnet | Network | Usable Hosts | Broadcast |
+|--------|---------|--------------|-----------|
+| 1 | 192.168.1.0/26 | .1–.62 | .63 |
+| 2 | 192.168.1.64/26 | .65–.126 | .127 |
+| 3 | 192.168.1.128/26 | .129–.190 | .191 |
+| 4 | 192.168.1.192/26 | .193–.254 | .255 |
+
+#### Host-Oriented Subnetting
+
+**Example 2: From 10.0.0.0/8, create subnets for ~1000 hosts each**
+
+1. **Minimum host bits:** $2^{10} = 1024$ addresses
+2. **Usable hosts per subnet:** ~1022
+3. **Resulting prefix:** 32 - 10 = /22 (255.255.252.0)
+4. **Number of /22 subnets in /8:** $2^{(22-8)} = 2^{14} = 16,384$ possible subnets
+
+---
+
+### IP Packet Structure & Encapsulation
+
+#### IPv4 Packet (Datagram) Header
+
+An IPv4 packet consists of a header (20–60 bytes) plus payload.
+
+**Key Header Fields:**
+
+| Field | Size | Purpose |
+|-------|------|---------|
+| **Version** | 4 bits | IP version (4 for IPv4) |
+| **IHL** (Header Length) | 4 bits | Header length in 32-bit words (5 → 20 bytes minimum) |
+| **DSCP/ECN** | 8 bits | Quality of Service (QoS) and congestion notification |
+| **Total Length** | 16 bits | Complete packet size (header + data) in bytes |
+| **Identification** | 16 bits | Identifies fragments of the same datagram |
+| **Flags** | 3 bits | DF (Don't Fragment), MF (More Fragments), Reserved |
+| **Fragment Offset** | 13 bits | Position of fragment in original datagram (in 8-byte units) |
+| **TTL** (Time to Live) | 8 bits | Max hops; decremented at each router; dropped if 0 |
+| **Protocol** | 8 bits | Next-layer protocol (6=TCP, 17=UDP, 1=ICMP) |
+| **Header Checksum** | 16 bits | Checksum of IP header only |
+| **Source Address** | 32 bits | IP address of sender |
+| **Destination Address** | 32 bits | IP address of recipient |
+| **Options** | 0–40 bytes | Optional; rarely used in modern networks |
+
+**Example:** A typical HTTP/TCP/IP packet over Ethernet:
+```
+Ethernet frame → IPv4 packet (protocol=6) → TCP segment (port 80/443) → HTTP data
+```
+
+#### Encapsulation in the Stack
+
+**Sending Data (Down the Stack):**
+1. **Application layer:** Creates data (e.g., HTTP request)
+2. **Transport layer:** Adds ports, sequence numbers, checksums
+3. **IP layer:** Encapsulates into IP packet with source/destination IP, TTL
+4. **Link layer:** Wraps into frame (e.g., Ethernet) with MAC addresses
+
+**Receiving Data (Up the Stack):**
+Each layer strips its header and passes the payload to the next layer.
+
+---
+
+### Routing Concepts & IP Forwarding
+
+#### Routing vs Forwarding
+
+| Term | Definition |
+|------|-----------|
+| **Routing** | Building and maintaining routing tables using routing protocols or static configuration |
+| **Forwarding** | Using the routing table to choose the next hop and send packets |
+
+Routers operate at the IP layer with multiple interfaces in different subnets. They forward packets based on IP addresses, not MAC addresses.
+
+#### IP Forwarding Steps
+
+When a router receives an IP packet:
+
+1. **Verify integrity and TTL**
+   - If TTL = 0, drop packet and send ICMP Time Exceeded
+   
+2. **Lookup destination IP**
+   - Examine destination address
+   
+3. **Longest Prefix Match**
+   - Search routing table for most specific (longest) matching route
+   
+4. **Determine next hop**
+   - Identify outgoing interface and next-hop router IP
+   
+5. **Forward packet**
+   - Decrement TTL
+   - Recompute header checksum
+   - Send packet
+
+#### Types of Routes
+
+| Route Type | Source | Example |
+|-----------|--------|---------|
+| **Directly Connected** | Local interfaces | Subnets on router's own interfaces |
+| **Static Routes** | Administrator configuration | Manual entries for specific destinations |
+| **Dynamic Routes** | Routing protocols | OSPF, BGP, RIP, EIGRP |
+
+**Longest Prefix Match Example:**
+
+Router's routing table:
+```
+0.0.0.0/0 → default gateway
+10.0.0.0/8 → ISP A
+10.1.0.0/16 → Data center
+```
+
+For destination `10.1.5.20`:
+- Matches /8 ✓ and /16 ✓
+- **Choose /16** (longer, more specific)
+
+---
+
+### IP Fragmentation & MTU
+
+#### MTU and Fragmentation Need
+
+**MTU (Maximum Transmission Unit):** Maximum payload size of a link-layer frame.
+
+If an IP packet exceeds the outgoing interface MTU, IPv4 may fragment it into smaller packets.
+
+**Example:**
+```
+Ethernet MTU = 1500 bytes (typical)
+IP header = 20 bytes, TCP header = 20 bytes
+Max TCP payload = 1500 - 20 - 20 = 1460 bytes
+```
+
+#### Fragmentation Fields & Rules
+
+**Fields Used:**
+- **Identification:** Same value for all fragments of the original datagram
+- **DF (Don't Fragment):** If set, routers must not fragment; instead drop and send ICMP
+- **MF (More Fragments):** Set on all fragments except the last
+- **Fragment Offset:** Where this fragment's data starts (in units of 8 bytes)
+
+**Rules:**
+- Fragment data must be a multiple of 8 bytes (except final fragment)
+- Each fragment gets its own IP header
+- Total Length reflects individual fragment size
+
+#### Fragmentation Example
+
+**Scenario:**
+- Original datagram: 4000 bytes total (20-byte IP header + 3980 bytes data)
+- Outgoing link MTU: 1500 bytes
+- Max data per fragment: 1480 bytes (multiple of 8 ✓)
+
+**Resulting Fragments:**
+
+| Fragment | Data Bytes | Offset | MF |
+|----------|-----------|--------|-----|
+| 1 | 0–1479 (1480) | 0 | 1 |
+| 2 | 1480–2959 (1480) | 185 | 1 |
+| 3 | 2960–3979 (1020) | 370 | 0 |
+
+All fragments carry the same Identification; receiver reassembles using Identification + Fragment Offset.
+
+#### Problems with Fragmentation
+
+| Issue | Impact |
+|-------|--------|
+| Fragment loss | Entire original datagram must be retransmitted |
+| Increased packets | More network and host overhead |
+| Mishandling | Firewalls or NAT may not process fragments correctly |
+
+#### Path MTU Discovery (PMTUD)
+
+**Purpose:** Determine maximum packet size that can traverse the path without fragmentation
+
+**Process:**
+1. Sender transmits packets with DF (Don't Fragment) set
+2. Router cannot fragment; drops oversized packet
+3. Router sends ICMP "Fragmentation Needed" with MTU size
+4. Sender reduces packet size to discovered path MTU
+5. No fragmentation occurs on subsequent packets
+
+---
+
+### ICMP (Internet Control Message Protocol)
+
+#### Purpose & Role
+
+ICMP is used for error reporting and diagnostic messages at the IP layer.
+
+**Key Points:**
+- Carried inside IP packets (Protocol 1 for ICMPv4, 58 for ICMPv6)
+- Does NOT provide reliability for user data
+- Used for network control and diagnostics only
+
+**ICMP Message Structure:**
+```
+Type (8 bits) | Code (8 bits) | Checksum (16 bits) | Data
+```
+
+The Data field often includes part of the original IP header + 8 bytes of the original payload for context.
+
+#### Common ICMP Message Types (IPv4)
+
+| Type | Code | Name | Purpose |
+|------|------|------|---------|
+| 0 | 0 | Echo Reply | Response to ping request |
+| 3 | 0 | Destination Unreachable (Network) | Destination network not reachable |
+| 3 | 1 | Destination Unreachable (Host) | Destination host not reachable |
+| 3 | 3 | Destination Unreachable (Port) | UDP/ICMP port unreachable |
+| 3 | 4 | Destination Unreachable (Fragmentation Needed) | Packet too large, DF set; used by PMTUD |
+| 5 | 0 | Redirect | Better gateway available for destination |
+| 8 | 0 | Echo Request | Ping request; tests reachability |
+| 11 | 0 | Time Exceeded (Transit) | TTL expired in transit; used by traceroute |
+| 11 | 1 | Time Exceeded (Reassembly) | Fragment reassembly time limit exceeded |
+
+#### Practical Applications
+
+**Ping (Echo Request/Reply):**
+- Sends ICMP Echo Requests
+- Expects Echo Replies
+- Measures reachability and round-trip time (RTT)
+
+**Traceroute (Probing Path):**
+- Sends packets with gradually increasing TTL (1, 2, 3, ...)
+- Intermediate routers drop packets when TTL expires
+- Each router responds with ICMP Time Exceeded
+- Reveals the network path hop-by-hop
+
+**PMTUD Scenario:**
+1. Host sends 2000-byte packet with DF=1
+2. Link MTU is 1500 bytes
+3. Router cannot fragment (DF set); drops packet
+4. Router sends ICMP Destination Unreachable, Code 4 with MTU information
+5. Sender adjusts packet size to 1500 bytes
+
+---
+
+### IPv6 (Brief Overview)
+
+While IPv4 dominates, IPv6 addresses the address exhaustion problem:
+
+| Feature | IPv4 | IPv6 |
+|---------|------|------|
+| **Address Size** | 32 bits | 128 bits |
+| **Notation** | Dotted decimal (xxx.xxx.xxx.xxx) | Colon hexadecimal (xxxx:xxxx::xxxx) |
+| **Address Space** | $2^{32}$ (~4.3 billion) | $2^{128}$ (essentially unlimited) |
+| **Header Size** | 20–60 bytes | 40 bytes (fixed) |
+| **Fragmentation** | Routers fragment packets | Only hosts fragment packets |
+| **Auto-configuration** | Manual/DHCP | Built-in (SLAAC) |
+
+IPv6 simplifies routing, improves security (IPsec), and provides better mobility support.
+
+---
+
+### Summary & Key Points
+
+✓ **IP layer** = logical addressing + routing, best-effort, connectionless service
+
+✓ **IPv4 header fields:** Version, IHL, Total Length, Identification, Flags (DF/MF), Fragment Offset, TTL, Protocol, Header Checksum, Source/Destination IP
+
+✓ **Subnetting:** Master CIDR notation, block size calculations, host count formulas, and network/broadcast ranges
+
+✓ **Routing:** Longest prefix match, default route (0.0.0.0/0), static vs dynamic routing
+
+✓ **Fragmentation:** Triggered by MTU; uses Identification, Flags, Fragment Offset; avoid with PMTUD and appropriate MSS sizing
+
+✓ **ICMP:** Error/diagnostic only; key types: Echo (ping), Destination Unreachable, Time Exceeded (traceroute), Redirect
+
+✓ **Tools:** `ping` tests reachability; `traceroute` reveals path; `ipconfig`/`ifconfig` shows local configuration
 
 ## 5. Switches, Gateways, and Routers
 
