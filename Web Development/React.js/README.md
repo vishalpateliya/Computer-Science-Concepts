@@ -526,38 +526,108 @@ function Counter() {
 
 ### useCallback
 
-**What is useCallback?**
-`useCallback` returns a memoized callback function. Useful when passing callbacks to optimized child components.
+**The Core Concept: Referential Equality**
 
-**Syntax:**
+**JavaScript Functions are Objects:** In JavaScript, functions are objects. Even if two functions look identical, they are distinct objects in memory with unique references.
+
+**Re-renders Recreate Functions:** Every time a React component re-renders, all functions defined inside it are recreated. This changes their memory reference on every render.
+
+**The Conflict with React.memo:** If you wrap a child component in React.memo (to optimize performance), passing a function as a prop can break the optimization. Since the parent recreates the function on every render, the child sees a "new" prop and re-renders unnecessarily.
+
+**The Solution:** useCallback caches the function instance, preserving the reference between renders.
+
+**Code Example**
+
+**1. The Child Component (Product)** This component is wrapped in React.memo. It only re-renders if its props (product or onAddToCart) change.
+
 ```javascript
-const memoizedCallback = useCallback(
-  () => { /* function body */ },
-  [dependencies]
-);
+import React from 'react';
+
+const Product = React.memo(({ product, onAddToCart }) => {
+  console.log(`Rendering: ${product.name}`);
+  return (
+    <div className="product-card">
+      <h4>{product.name}</h4>
+      <button onClick={() => onAddToCart(product)}>Add to Cart</button>
+    </div>
+  );
+});
 ```
 
-**Example:**
+**2. The Parent Component (ProductList)** This component uses useCallback to ensure the handleAddToCart function stays stable, preventing the Product children from re-rendering when theme changes.
+
 ```javascript
-function Parent() {
-  const [count, setCount] = useState(0);
+import React, { useState, useCallback } from 'react';
 
-  // Without useCallback: new function on every render
-  // With useCallback: same function unless count changes
-  const handleClick = useCallback(() => {
-    console.log(`Count is ${count}`);
-  }, [count]);
+const ProductList = ({ products }) => {
+  const [cart, setCart] = useState([]);
+  const [theme, setTheme] = useState('light');
 
-  return <Child onClickHandler={handleClick} />;
+  // useCallback ensures this function keeps the same reference 
+  // unless dependencies (none in this case) change.
+  const handleAddToCart = useCallback((product) => {
+    // Functional state update prevents dependency on 'cart'
+    setCart((prevCart) => [...prevCart, product]);
+  }, []); 
+
+  return (
+    <div className={theme}>
+      {/* Changing theme re-renders ProductList.
+          However, Product items will NOT re-render because 
+          handleAddToCart's reference is stable. */}
+      <button onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}>
+        Toggle Theme
+      </button>
+
+      {products.map((p) => (
+        <Product key={p.id} product={p} onAddToCart={handleAddToCart} />
+      ))}
+    </div>
+  );
+};
+```
+
+**Usage Rules & Best Practices**
+
+**Dependency Management:**
+
+- **Reference Stability:** useCallback works by itself, but it is usually useless unless a child component cares about reference equality (e.g., React.memo).
+
+- **Dependencies:** Choose dependencies carefully. If a dependency changes, useCallback returns a new function reference. This is intentional.
+
+**Best Practice for Custom Hooks:** When creating a custom Hook, wrap any functions you return in useCallback. This ensures that consumers of your hook can use those functions in their own dependency arrays or React.memo components without causing infinite loops or extra renders.
+
+```javascript
+function useCart() {
+  const [cart, setCart] = useState([]);
+
+  const addToCart = useCallback((item) => {
+    setCart((prevCart) => [...prevCart, item]);
+  }, []);
+
+  const removeFromCart = useCallback((id) => {
+    setCart((prevCart) => prevCart.filter(item => item.id !== id));
+  }, []);
+
+  return { cart, addToCart, removeFromCart };
 }
 ```
+
+**When NOT to Use:**
+
+- **No Memoization:** If you are not passing the function as a prop to a component wrapped in React.memo, you likely do not need useCallback.
+
+- **No Performance Gain:** If memoizing the function/component does not bring a noticeable performance improvement, skip useCallback. The hook itself has a small performance cost.
 
 ---
 
 ### useMemo
 
 **What is useMemo?**
-`useMemo` returns a memoized value. Use it to avoid expensive calculations on every render.
+
+It is useful when we want to memoize a value that is derived from expensive or complex calculations.
+
+It prevents recalculation of the value if the dependencies have not changed, even when the component re-renders due to other state or prop updates.
 
 **Syntax:**
 ```javascript
@@ -569,16 +639,35 @@ const memoizedValue = useMemo(
 
 **Example:**
 ```javascript
-function ListComponent({ numbers }) {
-  // Expensive calculation
-  const sortedNumbers = useMemo(() => {
-    console.log('Sorting...');
-    return numbers.sort((a, b) => a - b);
-  }, [numbers]);
+import { useMemo } from 'react';
 
-  return <div>{sortedNumbers.join(', ')}</div>;
-}
+const User = () => {
+  const user = {
+    name: "Umais",
+    baseSalary: 60000,
+    tax: 5000,
+    bonus: 10000,
+    homeAllowance: 15000,
+    fuelAllowance: 5000,
+  };
+
+  const grossSalary = useMemo(() => {
+    return (user.baseSalary + user.bonus + user.homeAllowance + user.fuelAllowance - user.tax);
+  }, [user]);
+
+  return (
+    <div>
+      <p>{`${user.name} has gross salary ${grossSalary}`}</p>
+    </div>
+  );
+};
+
+export default User;
 ```
+
+**Best Practice:**
+
+You could also use baseSalary, bonus, homeAllowance, fuelAllowance, and tax individually as dependencies instead of the entire user object. This gives more granular control over when the memoized value is recalculated.
 
 ---
 
@@ -897,45 +986,52 @@ function MyComponent() {
 
 ### React.memo
 
+**Re-rendering Behavior**
+
+- When any state of a parent component changes, it re-renders the parent component and all its child components re-render by default.
+- When any state of a child component changes, only the child component re-renders.
+❌ Parent does not re-render unless its own state or props change.
+
 **What is React.memo?**
-`React.memo` prevents a component from re-rendering if its props haven't changed.
+
+- React.memo is a higher-order component that skips re-rendering a component if its props haven't changed (shallow comparison).
+- It improves performance for components that render frequently with the same props.
 
 **Example:**
 ```javascript
-// Without React.memo
-function UserCard({ name, age }) {
-  console.log('Rendering UserCard');
-  return <div>{name}, {age}</div>;
-}
+import { useState, memo } from 'react';
 
-// With React.memo
-const MemoizedUserCard = React.memo(UserCard);
+// This component is memoized
+const Movie = memo(({ title }) => {
+  console.log("Movie component rendered!");
+  return <div>Movie Title: {title}</div>;
+});
 
-// Usage
 function App() {
   const [count, setCount] = useState(0);
 
   return (
-    <>
-      <button onClick={() => setCount(count + 1)}>Increment: {count}</button>
-      <MemoizedUserCard name="John" age={25} />
-    </>
+    <div>
+      <h1>Counter: {count}</h1>
+      <button onClick={() => setCount(count + 1)}>Update Counter</button>
+
+      {/* Movie re-renders only if 'title' changes */}
+      <Movie title="Inception" />
+    </div>
   );
 }
-// UserCard only re-renders when name or age changes
+
+export default App;
 ```
 
-**Custom Comparison:**
-```javascript
-const MemoizedComponent = React.memo(
-  Component,
-  (prevProps, nextProps) => {
-    // Return true if props are equal (don't re-render)
-    // Return false if props are different (re-render)
-    return prevProps.id === nextProps.id;
-  }
-);
-```
+**Notes - Performance Trade-off:**
+
+- Do not wrap every component in React.memo.
+- The props comparison itself has a small performance cost.
+
+**Stable Props:**
+
+- If you pass functions or objects as props, use useCallback or useMemo in the parent to keep references stable.
 
 ---
 
@@ -944,27 +1040,6 @@ const MemoizedComponent = React.memo(
 **Difference:**
 - `useMemo` memoizes a **value**
 - `useCallback` memoizes a **function**
-
-**Example:**
-```javascript
-function Parent() {
-  const [count, setCount] = useState(0);
-
-  // useMemo: memoize expensive calculation
-  const expensiveValue = useMemo(() => {
-    return count * 2;
-  }, [count]);
-
-  // useCallback: memoize function for child component
-  const handleClick = useCallback(() => {
-    console.log('Clicked');
-  }, []);
-
-  return (
-    <Child value={expensiveValue} onClick={handleClick} />
-  );
-}
-```
 
 ---
 
